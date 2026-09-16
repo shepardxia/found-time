@@ -49,16 +49,19 @@ def masks(lm):
     return lm.token_mask(jp - numerals), lm.token_mask((jp - kanji_only) - numerals)
 
 class TwoColumns(Model):
-    def __init__(self, clock, prompt, targets):
+    """Writes both columns, or only the second when the first is given: the
+    hour's sentence is then part of the prompt and `hour_span` names the
+    numeral's slots in it."""
+    def __init__(self, clock, prompt, targets, right=None, hour_span=None):
         super().__init__()
         self.clock = clock
-        self.context = LMContext(clock.lm, prompt, temp=TEMP)
+        self.context = LMContext(clock.lm, prompt + (right or ""), temp=TEMP)
         self.targets = targets        # the hour and minute numerals
         self.ids = [clock.lm.tokenizer.encode(t, add_special_tokens=False) for t in targets]
-        self.col = 0                  # column being written
+        self.col = 0 if right is None else 1    # column being written
         self.pending = True           # this column's numeral not yet placed
-        self.split = None
-        self.spans = []
+        self.split = None if right is None else 0
+        self.spans = [] if right is None else [tuple(hour_span)]
 
     def immutable_properties(self):
         return {"clock", "targets", "ids"}
@@ -133,21 +136,27 @@ class Clock:
         self.eos = self.lm.tokenizer.eos_token_id
         self.end_id = self.lm.tokenizer.encode("。", add_special_tokens=False)[0]
 
-    async def generate(self, when):
-        """The passage for `when`, or None if no particle survived three draws."""
+    async def generate(self, when, right=None, hour_span=None):
+        """The passage for `when`, or None if no particle survived three draws.
+        With `right`, the hour's sentence and its numeral's span from an earlier
+        minute, only the minute's sentence is written."""
         hour, minute = numeral(when.hour % 12 or 12), numeral(when.minute)
         # The frame names the two numerals so that the observed ones arrive where the
         # model expected a number -- as counts, not as a clock.
         prompt = (f"以下は、{era_date(when)}を描いた小説の一節である。"
                   f"文中には{hour}と{minute}、二つの数が現れる。\n\n")
         for attempt in range(3):
-            particles = await smc_standard(TwoColumns(self, prompt, (hour, minute)), PARTICLES, ess_threshold=0.5)
+            program = TwoColumns(self, prompt, (hour, minute), right, hour_span)
+            particles = await smc_standard(program, PARTICLES, ess_threshold=0.5)
             alive = [p for p in particles if math.isfinite(p.weight)]
             if not alive: continue
             best = max(alive, key=lambda p: p.weight)
-            text = str(best.context)
-            return {"time": minute_key(when), "right": text[:best.split], "left": text[best.split:],
-                    "spans": [list(span) for span in best.spans], "split": best.split}
+            text = (right or "") + str(best.context)
+            split = len(right) if right else best.split
+            spans = [list(best.spans[0])] + [[a + split, b + split] for a, b in best.spans[1:]] if right \
+                else [list(span) for span in best.spans]
+            return {"time": minute_key(when), "right": text[:split], "left": text[split:],
+                    "spans": spans, "split": split}
         return None
 
 if __name__ == "__main__":

@@ -32,11 +32,14 @@ def load_store():
             store[line["time"]] = (store[line["time"]] + [line])[-KEEP:]
     return store
 
-async def line_for(clock, store, when):
+async def line_for(clock, store, when, hour_line):
+    """`hour_line`, a passage from earlier in the same hour, lends its first
+    sentence so only the minute's is written."""
     known = store[minute_key(when)]
     if known and on_low_battery():
         return random.choice(known)
-    line = await clock.generate(when)
+    right = hour_line and hour_line["right"]
+    line = await clock.generate(when, right, hour_line and hour_line["spans"][0])
     if line:
         known.append(line)
         del known[:-KEEP]
@@ -60,7 +63,8 @@ async def main():
         lines = {k: v for k, v in lines.items() if k in wanted}
         for i, key in enumerate(wanted):
             if key not in lines:
-                line = await line_for(clock, store, now + datetime.timedelta(minutes=i))
+                same_hour = [v for k, v in lines.items() if k[:2] == key[:2]]
+                line = await line_for(clock, store, now + datetime.timedelta(minutes=i), same_hour[0] if same_hour else None)
                 if line:
                     lines[key] = line
                     write(OUT, {"lines": lines})
