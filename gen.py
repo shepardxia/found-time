@@ -37,16 +37,20 @@ def numeral(n):
     return (KD[tens] if tens > 1 else "") + "十" + (KD[ones] if ones else "")
 
 BRACKETS = set("「」『』（）")   # a 14-character column has no room to close one
+TIME_COUNTERS = set("時分秒")   # a numeral followed by one of these reads as a clock
 
 def masks(lm):
-    jp, kanji_only, numerals = set(), set(), set()
+    """Tokens allowed anywhere; tokens allowed after a run of kanji; tokens that
+    turn the numeral before them into a time."""
+    jp, kanji_only, numerals, times = set(), set(), set(), set()
     for i, v in enumerate(lm.str_vocab):
         if any(c in NUMERAL or c in BRACKETS for c in v): numerals.add(i)
+        if v and v[0] in TIME_COUNTERS: times.add(i)
         if japanese(v):
             jp.add(i)
             if all(is_kanji(c) for c in v): kanji_only.add(i)
     jp.add(lm.tokenizer.eos_token_id)
-    return lm.token_mask(jp - numerals), lm.token_mask((jp - kanji_only) - numerals)
+    return lm.token_mask(jp - numerals), lm.token_mask((jp - kanji_only) - numerals), lm.token_mask(times)
 
 class TwoColumns(Model):
     """Writes both columns, or only the second when the first is given: the
@@ -60,6 +64,7 @@ class TwoColumns(Model):
         self.ids = [clock.lm.tokenizer.encode(t, add_special_tokens=False) for t in targets]
         self.col = 0 if right is None else 1    # column being written
         self.pending = True           # this column's numeral not yet placed
+        self.after_numeral = False    # the next token follows a numeral
         self.split = None if right is None else 0
         self.spans = [] if right is None else [tuple(hour_span)]
 
@@ -94,6 +99,7 @@ class TwoColumns(Model):
             await self.observe_ids(self.ids[self.col])
             self.spans.append((len(text), len(str(self.context))))
             self.pending = False
+            self.after_numeral = True
             return
 
         if not self.pending and len(col) >= CAP and not col.rstrip().endswith(END):
@@ -106,10 +112,12 @@ class TwoColumns(Model):
             if not is_kanji(c): break
             kanji_run += 1
         mask = self.clock.break_mask if kanji_run >= MAX_KANJI_RUN else self.clock.mask
+        if self.after_numeral: mask = mask & ~self.clock.time_mask
         await self.observe(self.context.mask_dist(mask), True)
 
         tok = await self.sample(self.context.next_token())
         self.col_tokens += 1
+        self.after_numeral = False
         if tok.token_id == self.clock.eos:
             self.condition(False); self.finish(); return
         text = str(self.context)
@@ -132,7 +140,7 @@ class Clock:
     """The loaded model and everything derived from its vocabulary, built once."""
     def __init__(self):
         self.lm = CachedCausalLM.from_pretrained(MODEL, backend="mlx")
-        self.mask, self.break_mask = masks(self.lm)
+        self.mask, self.break_mask, self.time_mask = masks(self.lm)
         self.eos = self.lm.tokenizer.eos_token_id
         self.end_id = self.lm.tokenizer.encode("。", add_special_tokens=False)[0]
 
