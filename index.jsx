@@ -4,7 +4,7 @@
 // glyphs; only the numerals are black. Treatment 6c from the design pass.
 
 export const command = "bash tick.sh";
-export const refreshFrequency = 30000;
+export const refreshFrequency = 60000;
 
 // The minute turns on a timer armed for the boundary itself: one wake per
 // minute, at :00, re-armed from there. The data tick only carries new lines.
@@ -17,29 +17,24 @@ export const init = (dispatch) => {
   arm();
 };
 
-export const initialState = {lines: {}, minute: null, error: null};
+const minuteKey = () => new Date().toTimeString().slice(0, 5);
+
+export const initialState = {lines: {}, minute: minuteKey()};
 
 export const updateState = (event, previous) => {
   if (event.type === 'MINUTE') return {...previous, minute: event.minute};
-  if (event.error) return {...previous, error: String(event.error)};
   try {
-    return {...previous, lines: JSON.parse(event.output).lines, error: null};
+    return {...previous, lines: JSON.parse(event.output).lines};
   } catch (e) {
     return previous;
   }
 };
 
-// The line for this minute, by the page's own clock, so the switch happens at
-// the boundary rather than on the next tick; if this minute has not been
-// written yet, the latest minute that has.
-const minuteKey = () => {
-  const now = new Date();
-  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-};
-
-const current = (lines) => {
-  const key = minuteKey();
-  if (lines[key]) return lines[key];
+// The line for the minute on the page's own clock, so the switch happens at
+// the boundary rather than on the next tick; if that minute has not been
+// written yet, the latest one that has.
+const current = (lines, minute) => {
+  if (lines[minute]) return lines[minute];
   const keys = Object.keys(lines).sort();
   return keys.length ? lines[keys[keys.length - 1]] : null;
 };
@@ -93,9 +88,9 @@ const glyphs = (text, base, spans) => {
   return out;
 };
 
-export const render = ({lines}) => {
-  const passage = current(lines || {});
-  if (!passage || passage.error) return null;
+export const render = ({lines, minute}) => {
+  const passage = current(lines, minute);
+  if (!passage) return null;
   return (
     <div style={COLUMNS}>
       <div style={{...COLUMN, marginTop: HOUR_TOP}}>{glyphs(passage.right, 0, passage.spans)}</div>

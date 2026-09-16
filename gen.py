@@ -1,4 +1,4 @@
-"""Prints one two-column Japanese passage that carries the current time.
+"""One two-column Japanese passage that carries a given time.
 
 The hour is observed into the first sentence and the minute into the second,
 under a language model steered by sequential Monte Carlo. Every other token is
@@ -23,6 +23,8 @@ def era_date(d):
     y = d.year - 2018
     return f"令和{'元' if y == 1 else numeral(y)}年{numeral(d.month)}月{numeral(d.day)}日"
 
+def minute_key(when): return when.strftime("%H:%M")
+
 def is_kana(c): return "぀" <= c <= "ヿ" or c in "ーゝゞヽヾ"
 def is_kanji(c): return "一" <= c <= "鿿" or c in "々〆ヶ"
 def is_punct(c): return c in "、。「」『』（）！？…・―〜　"
@@ -44,89 +46,82 @@ def masks(lm):
             jp.add(i)
             if all(is_kanji(c) for c in v): kanji_only.add(i)
     jp.add(lm.tokenizer.eos_token_id)
-    return jp - numerals, (jp - kanji_only) - numerals
+    return lm.token_mask(jp - numerals), lm.token_mask((jp - kanji_only) - numerals)
 
 class TwoColumns(Model):
-    def __init__(self, lm, prompt, hour, minute, mask, break_mask, end_id):
+    def __init__(self, clock, prompt, targets):
         super().__init__()
-        self.lm, self.mask, self.break_mask, self.end_id = lm, mask, break_mask, end_id
-        self.context = LMContext(lm, prompt, temp=TEMP)
-        self.eos = lm.tokenizer.eos_token_id
-        self.targets = (hour, minute)
-        self.phase = 0            # 0 hour pending, 1 ending column one, 2 minute pending, 3 ending column two
+        self.clock = clock
+        self.context = LMContext(clock.lm, prompt, temp=TEMP)
+        self.targets = targets        # the hour and minute numerals
+        self.ids = [clock.lm.tokenizer.encode(t, add_special_tokens=False) for t in targets]
+        self.col = 0                  # column being written
+        self.pending = True           # this column's numeral not yet placed
         self.split = None
         self.spans = []
 
     def immutable_properties(self):
-        return {"lm", "eos", "mask", "break_mask", "end_id"}
+        return {"clock", "targets", "ids"}
 
     # Latents are drawn here, after the template is cloned per particle.
     async def start(self):
         self.due = [random.randint(2, 6), random.randint(2, 6)]
-        self.ids = [self.lm.tokenizer.encode(t, add_special_tokens=False) for t in self.targets]
         self.col_tokens = 0
 
     # The two numerals must not sit level with each other across the columns:
     # the minute's slots, shifted down by the drop, stay clear of the hour's.
     def clear(self, col):
-        if self.phase != 2: return True
+        if self.col == 0: return True
         h0, h1 = self.spans[0]
-        hour = range(h0, h1)                                   # glyph slots in column one
         m0 = len(col) + DROP
-        minute = range(m0, m0 + len(self.targets[1]))
-        return minute.stop + GAP <= hour.start or minute.start >= hour.stop + GAP
-
-    def column(self):
-        text = str(self.context)
-        return text if self.split is None else text[self.split:]
-
-    def kanji_run(self):
-        n = 0
-        for c in reversed(str(self.context)):
-            if is_kanji(c): n += 1
-            else: break
-        return n
+        m1 = m0 + len(self.targets[1])
+        return m1 + GAP <= h0 or m0 >= h1 + GAP
 
     async def observe_ids(self, ids):
         for tid in ids:
             await self.observe(self.context.next_token(), tid)
 
     async def step(self):
-        col = self.column()
-        pending = self.phase in (0, 2)
+        text = str(self.context)
+        col = text if self.split is None else text[self.split:]
         # A numeral phrase opens after kana or punctuation: kanji-on-kanji forms a compound.
         boundary = bool(col) and (is_kana(col[-1]) or is_punct(col[-1]))
 
-        if pending and self.col_tokens >= self.due[self.phase // 2] and boundary and self.clear(col):
-            before = len(str(self.context))
-            await self.observe_ids(self.ids[self.phase // 2])
-            self.spans.append((before, len(str(self.context))))
-            self.phase += 1
+        if self.pending and self.col_tokens >= self.due[self.col] and boundary and self.clear(col):
+            await self.observe_ids(self.ids[self.col])
+            self.spans.append((len(text), len(str(self.context))))
+            self.pending = False
             return
 
-        if not pending and len(col) >= CAP and not col.rstrip().endswith(END):
-            await self.observe_ids([self.end_id])       # end the sentence at the LM's price
+        if not self.pending and len(col) >= CAP and not col.rstrip().endswith(END):
+            await self.observe_ids([self.clock.end_id])       # end the sentence at the LM's price
             self.after_end()
             return
 
-        mask = self.break_mask if self.kanji_run() >= MAX_KANJI_RUN else self.mask
+        kanji_run = 0
+        for c in reversed(text):
+            if not is_kanji(c): break
+            kanji_run += 1
+        mask = self.clock.break_mask if kanji_run >= MAX_KANJI_RUN else self.clock.mask
         await self.observe(self.context.mask_dist(mask), True)
 
         tok = await self.sample(self.context.next_token())
         self.col_tokens += 1
-        if tok.token_id == self.eos:
+        if tok.token_id == self.clock.eos:
             self.condition(False); self.finish(); return
-        if self.column().rstrip().endswith(END):
-            if pending:
-                if len(self.column()) >= CAP: self.condition(False); self.finish()
+        text = str(self.context)
+        col = text if self.split is None else text[self.split:]
+        if col.rstrip().endswith(END):
+            if self.pending:
+                if len(col) >= CAP: self.condition(False); self.finish()
                 return
             self.after_end()
 
     def after_end(self):
-        if self.phase == 1:
+        if self.col == 0:
             self.split = len(str(self.context))
             self.col_tokens = 0
-            self.phase = 2
+            self.col, self.pending = 1, True
         else:
             self.finish()
 
@@ -135,26 +130,25 @@ class Clock:
     def __init__(self):
         self.lm = CachedCausalLM.from_pretrained(MODEL, backend="mlx")
         self.mask, self.break_mask = masks(self.lm)
+        self.eos = self.lm.tokenizer.eos_token_id
         self.end_id = self.lm.tokenizer.encode("。", add_special_tokens=False)[0]
 
     async def generate(self, when):
+        """The passage for `when`, or None if no particle survived three draws."""
         hour, minute = numeral(when.hour % 12 or 12), numeral(when.minute)
         # The frame names the two numerals so that the observed ones arrive where the
         # model expected a number -- as counts, not as a clock.
         prompt = (f"以下は、{era_date(when)}を描いた小説の一節である。"
                   f"文中には{hour}と{minute}、二つの数が現れる。\n\n")
-        for attempt in range(3):                          # another draw if none survived
-            particles = await smc_standard(
-                TwoColumns(self.lm, prompt, hour, minute, self.mask, self.break_mask, self.end_id),
-                PARTICLES, ess_threshold=0.5)
+        for attempt in range(3):
+            particles = await smc_standard(TwoColumns(self, prompt, (hour, minute)), PARTICLES, ess_threshold=0.5)
             alive = [p for p in particles if math.isfinite(p.weight)]
             if not alive: continue
             best = max(alive, key=lambda p: p.weight)
             text = str(best.context)
-            return {"time": when.strftime("%H:%M"), "hour": hour, "minute": minute,
-                    "right": text[:best.split], "left": text[best.split:],
-                    "spans": [[a, b] for a, b in best.spans], "split": best.split}
-        return {"time": when.strftime("%H:%M"), "hour": hour, "minute": minute, "error": "no particle survived"}
+            return {"time": minute_key(when), "right": text[:best.split], "left": text[best.split:],
+                    "spans": [list(span) for span in best.spans], "split": best.split}
+        return None
 
 if __name__ == "__main__":
     now = datetime.datetime.now()

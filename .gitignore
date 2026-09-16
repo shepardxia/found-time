@@ -2,8 +2,7 @@
 __pycache__/
 clock.json
 clock.tmp
-store.json
-store.tmp
+store.jsonl
 clockd.pid
 clockd.log
 .tick
