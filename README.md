@@ -6,13 +6,10 @@ minute in the second, and nothing else in them is a number.
 
 ![](docs/desktop.png)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/clock-dark.png">
-  <img src="docs/clock-light.png" width="130">
-</picture>
+<p align="center"><img src="docs/clock.png" width="720"></p>
 
-11:42 — *The spring wind cast eleven shadows on the river. / The pebbles left at
-the edge of the mountain path, about forty-two.*
+<p align="center">11:42 — <i>The spring wind cast eleven shadows on the river. / The pebbles left at
+the edge of the mountain path, about forty-two.</i></p>
 
 ## Install
 
