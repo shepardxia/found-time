@@ -3,7 +3,6 @@ __pycache__/
 clock.json
 clock.tmp
 store.jsonl
-clockd.pid
 clockd.log
 .tick
 corpus/corpus.txt

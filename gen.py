@@ -141,10 +141,7 @@ class Clock:
         With `right`, the hour's sentence and its numeral's span from an earlier
         minute, only the minute's sentence is written."""
         hour, minute = numeral(when.hour % 12 or 12), numeral(when.minute)
-        # The frame names the two numerals so that the observed ones arrive where the
-        # model expected a number -- as counts, not as a clock.
-        prompt = (f"以下は、{era_date(when)}を描いた小説の一節である。"
-                  f"文中には{hour}と{minute}、二つの数が現れる。\n\n")
+        prompt = f"以下は、{era_date(when)}を描いた小説の一節である。\n\n"
         for attempt in range(3):
             program = TwoColumns(self, prompt, (hour, minute), right, hour_span)
             particles = await smc_standard(program, PARTICLES, ess_threshold=0.5)

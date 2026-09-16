@@ -49,22 +49,20 @@ export const className = `
   right: ${RIGHT_INSET}px;
   width: ${2 * PITCH}px;
   font-family: "Hiragino Mincho ProN", "Noto Serif JP", serif;
+  font-size: 28px;
+  line-height: ${PITCH}px;
+  letter-spacing: 0.22em;
+  font-weight: 300;
+  color: #b3b1ae;
 `;
 
-// In vertical text line-height is the distance between columns and
-// letter-spacing the distance between glyphs; margin-inline is the pause
-// before and after a glyph along the column.
-const COLUMNS = {
-  display: 'flex',
-  flexDirection: 'row-reverse',
-  alignItems: 'flex-start',
-  fontSize: 28,
-  lineHeight: `${PITCH}px`,
-  letterSpacing: '0.22em',
-  fontWeight: 300,
-  color: '#b3b1ae',
-};
-const COLUMN = {writingMode: 'vertical-rl', textOrientation: 'mixed', whiteSpace: 'nowrap'};
+// Each column is pinned to the right edge on its own, so the hour's column
+// never moves when the minute's changes. In vertical text line-height is the
+// column width and letter-spacing the distance between glyphs; margin-inline
+// is the pause before and after a glyph along the column.
+const COLUMN = {position: 'absolute', writingMode: 'vertical-rl', textOrientation: 'mixed', whiteSpace: 'nowrap'};
+const HOUR = {...COLUMN, right: 0, top: HOUR_TOP};
+const MINUTE = {...COLUMN, right: PITCH, top: MINUTE_TOP};
 const LIT = {
   fontWeight: 900,
   color: '#000',
@@ -92,9 +90,9 @@ export const render = ({lines, minute}) => {
   const passage = current(lines, minute);
   if (!passage) return null;
   return (
-    <div style={COLUMNS}>
-      <div style={{...COLUMN, marginTop: HOUR_TOP}}>{glyphs(passage.right, 0, passage.spans)}</div>
-      <div style={{...COLUMN, marginTop: MINUTE_TOP}}>{glyphs(passage.left, passage.split, passage.spans)}</div>
+    <div>
+      <div style={HOUR}>{glyphs(passage.right, 0, passage.spans)}</div>
+      <div style={MINUTE}>{glyphs(passage.left, passage.split, passage.spans)}</div>
     </div>
   );
 };
