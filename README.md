@@ -1,15 +1,22 @@
 # found-time
 
-A clock for [Rücksicht](https://github.com/shepardxia/ruecksicht). Every minute
-a 1.2B model writes two sentences of Japanese; the hour is in the first, the
-minute in the second, and nothing else in them is a number.
+A Japanese [llamppl](https://github.com/genlm/llamppl) clock. Display
+implemented with [Rücksicht](https://github.com/shepardxia/ruecksicht).
+
+Seed corpus ([Aozora Bunko](https://www.aozora.gr.jp), `corpus/build.py`):
+- 梶井基次郎
+- 宮沢賢治
+- 夏目漱石
+- 芥川竜之介
+- 太宰治
+- 中島敦
 
 ![](docs/desktop.png)
 
 <p align="center"><img src="docs/clock.png" width="720"></p>
 
-<p align="center">11:42 — <i>The spring wind cast eleven shadows on the river. / The pebbles left at
-the edge of the mountain path, about forty-two.</i></p>
+<p align="center">11:42 — <i>A spring wind laid eleven shadows on the river. / Some forty-two pebbles
+remain at the edge of the mountain path.</i></p>
 
 ## Install
 
