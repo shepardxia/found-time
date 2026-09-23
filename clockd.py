@@ -1,7 +1,7 @@
 """Keeps the model resident and writes clock.json: the passage for this minute
 and the next, so the widget can switch at the boundary without waiting on a
 generation. Wakes once a minute, just past the boundary. Every line also goes
-into store.jsonl by minute of day; below 25% battery a minute the store already
+into store.jsonl by minute of day; below 50% battery a minute the store already
 knows is served from there instead of being generated.
 
 Started by tick.sh and stays up while the widget keeps ticking; exits on its
@@ -16,7 +16,7 @@ from gen import Clock, minute_key
 HERE = Path(__file__).resolve().parent
 OUT, STORE, HEARTBEAT = HERE / "clock.json", HERE / "store.jsonl", HERE / ".tick"
 KEEP = 8                    # lines remembered per minute of day
-LOW_BATTERY = 25            # percent
+LOW_BATTERY = 50            # percent
 IDLE_EXIT = 300             # seconds without a tick before exiting
 
 def on_low_battery():

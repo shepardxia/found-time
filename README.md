@@ -34,6 +34,6 @@ minute.
 ## Files
 
 `gen.py` writes one minute. `clockd.py` keeps the model loaded and writes this
-minute and the next to `clock.json`; below 25% battery it serves a minute it
+minute and the next to `clock.json`; below 50% battery it serves a minute it
 has seen before from `store.jsonl`. `tick.sh` keeps `clockd` running.
 `index.jsx` draws it.
