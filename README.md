@@ -29,7 +29,7 @@ rk add https://github.com/shepardxia/found-time
 
 Needs `llamppl` with the `mlx` extra on the Python that `tick.sh` names; the
 model, `LiquidAI/LFM2.5-1.2B-JP-202606-MLX-4bit`, downloads on the first
-minute.
+minute. The seed corpus is built once with `python corpus/build.py`.
 
 ## Files
 

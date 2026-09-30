@@ -1,9 +1,9 @@
 """Builds corpus.txt: clean sentences from Aozora Bunko, one per line, in order.
 
 Six authors, modern orthography, public domain. Ruby and editor's notes are
-stripped; a sentence is kept only if it could stand on the clock -- no
-numerals, no brackets, no quotation marks -- and the first stretch of every
-work is skipped, so a seed is never a famous opening.
+stripped; a sentence is kept only if it could stand on the clock -- kana,
+kanji, 、 and 。 and nothing else -- and the first stretch of every work is
+skipped, so a seed is never a famous opening.
 """
 import csv, io, json, random, re, sys, time, zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +16,11 @@ AUTHORS = {("梶井", "基次郎"), ("宮沢", "賢治"), ("夏目", "漱石"), 
 PER_AUTHOR = 50
 SKIP_HEAD = 0.05
 MIN, MAX = 14, 60
-FORBID = set("0123456789〇一二三四五六七八九十百千万零半「」『』（）()〔〕［］[]《》｜※")
+NUMERAL = set("〇一二三四五六七八九十百千万億零半")
+
+def is_kana(c): return "぀" <= c <= "ヿ" or c in "ーゝゞヽヾ"
+def is_kanji(c): return "一" <= c <= "鿿" or c in "々〆ヶ"
+def clean(s): return all((is_kana(c) or is_kanji(c) or c in "、。") and c not in NUMERAL for c in s)
 
 def fetch(url):
     with urlopen(Request(url, headers={"User-Agent": "found-time/1 (personal desktop clock)"}), timeout=60) as r:
@@ -48,7 +52,7 @@ def sentences(text):
     out = []
     for s in re.split(r"(?<=[。！？])", text):
         s = s.strip()
-        if MIN <= len(s) <= MAX and not (set(s) & FORBID) and s[-1] == "。":
+        if MIN <= len(s) <= MAX and clean(s) and s[-1] == "。":
             out.append(s)
     return out
 
