@@ -1,9 +1,9 @@
 """One two-column Japanese passage that carries a given time.
 
-The hour is found in the first sentence and the minute in the second. Each
-sentence is the language model's own prose under sequential Monte Carlo: it
-fits its column, carries its numeral once as a count, and shows no other
-number. The prompt never names the time: it is the date and a few sentences
+One sentence in two columns: the hour is found in the first clause, which
+ends on 、, and the minute in the second, which closes the sentence. Each
+column is the language model's own prose under sequential Monte Carlo: it
+fits its column, carries its numeral once, and shows no other number. The prompt never names the time: it is the date and a few sentences
 of a novel from the seed corpus, drawn afresh each time, which the passage
 continues. Column one is read first, so in 縦書き it stands on the right.
 """
@@ -25,7 +25,7 @@ SEED_SENTENCES = 4       # consecutive sentences of one work that open the passa
 NUMERAL = set("0123456789〇一二三四五六七八九十百千万億零半")
 BRACKETS = set("「」『』（）")   # a column has no room to close one
 TIME_COUNTERS = "時分秒"        # a numeral followed by one of these reads as a clock
-ENDS = "。！？"
+CLOSERS = ("、", "。！？")      # what ends each column: the hour's clause, then the sentence
 
 KD = "零一二三四五六七八九"
 def numeral(n):
@@ -62,10 +62,12 @@ class Masks:
         self.prose = prose
         self.broken = prose - ids(lambda v: all(is_kanji(c) for c in v))     # after a long kanji run
         self.time = ids(lambda v: v[:1] in TIME_COUNTERS)
-        self.ends = ids(lambda v: any(c in ENDS for c in v))
-        self.end_ids = list(self.ends & prose)
+        self.closes = [ids(lambda v, cl=cl: v[-1:] in cl) for cl in CLOSERS]               # tokens that end the column
+        self.holds = [ids(lambda v, cl=cl: any(c in cl for c in v)) for cl in CLOSERS]     # tokens holding a closer anywhere
+        self.sentence_end = self.holds[1]
+        self.close_ids = [list(c & prose) for c in self.closes]
         self.fit = [ids(lambda v, r=r: len(v) <= r) for r in range(CAP + 1)]           # tokens within r glyphs
-        self.period = lm.tokenizer.encode("。", add_special_tokens=False)[0]
+        self.closer = [lm.tokenizer.encode(cl[0], add_special_tokens=False)[0] for cl in CLOSERS]
 
 class Passage(Model):
     """Two sentences, the hour's then the minute's, one per step. With `right`
@@ -91,6 +93,7 @@ class Passage(Model):
         col = len(self.columns)
         numeral, glyphs = self.ids[col], self.glyphs[col]
         m = self.clock.masks
+        closers = CLOSERS[col]
         wait = random.randint(*WAIT)
         base = len(str(self.context))
         tokens, span, just_placed = 0, None, False
@@ -102,23 +105,24 @@ class Passage(Model):
                 await self.observe_ids(numeral)
                 span, just_placed = (n, n + glyphs), True
                 continue
-            if column and column[-1] in ENDS: break
+            if column and column[-1] in closers: break
             if room == 0:
                 if span is None: self.condition(False); return
-                await self.observe_ids([m.period])
+                await self.observe_ids([m.closer[col]])
                 break
             mask = m.broken if kanji_run(text) >= MAX_KANJI_RUN else m.prose
             if just_placed: mask = mask - m.time
+            if col == 0: mask = mask - m.sentence_end - (m.holds[0] - m.closes[0])   # the sentence goes on into the next column
             if span is None:
-                mask = (mask - m.ends) & m.fit[room - glyphs]
+                mask = (mask - m.holds[col]) & m.fit[room - glyphs]
             else:
                 mask = mask & m.fit[room]
                 if room <= LEAN:
-                    # Ask the model whether the sentence ends here, proposing yes at least 1/room
+                    # Ask the model whether the column closes here, proposing yes at least 1/room
                     # of the time; the importance weight keeps the model's own answer the target.
-                    p_end = np.exp(np.logaddexp.reduce(self.context.next_token_logprobs[m.end_ids]))
-                    await self.sample(self.context.mask_dist(m.ends & mask),
-                                      proposal=Bernoulli(max(min(p_end, 1.0), 1 / room)))
+                    p_close = np.exp(np.logaddexp.reduce(self.context.next_token_logprobs[m.close_ids[col]]))
+                    await self.sample(self.context.mask_dist(m.closes[col] & mask),
+                                      proposal=Bernoulli(max(min(p_close, 1.0), 1 / room)))
             await self.observe(self.context.mask_dist(mask), True)
             await self.sample(self.context.next_token())
             tokens, just_placed = tokens + 1, False
